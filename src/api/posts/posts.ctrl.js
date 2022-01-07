@@ -1,96 +1,111 @@
-let postId = 1;
+import Post from '../../models/post.js';
+import mongoose from 'mongoose';
+import Joi from 'joi';
 
-const posts = [
-  {
-    id: 1,
-    title: 'title',
-    body: 'contents',
-  },
-];
+const { ObjectId } = mongoose.Types;
+
+export const checkObjectId = (ctx, next) => {
+  const { id } = ctx.params;
+  if (!ObjectId.isValid(id)) {
+    ctx.status = 400;
+    return;
+  }
+  return next();
+};
 
 // POST /api/posts
-exports.write = ctx => {
-  const { title, body } = ctx.request.body;
-  postId += 1;
-  const post = { id: postId, title, body };
-  posts.push(post);
-  ctx.body = post;
+export const write = async ctx => {
+  const schema = Joi.object().keys({
+    title: Joi.string().required(),
+    body: Joi.string().required(),
+    tags: Joi.array()
+      .items(Joi.string())
+      .required(),
+  });
+  
+  const result = schema.validate(ctx.request.body);
+
+  if (result.error) {
+    ctx.status = 400;
+    ctx.body = result.error;
+    return;
+  }
+
+  const { title, body, tags } = ctx.request.body;
+  const post = new Post({ title, body, tags });
+  
+  try {
+    await post.save();
+    ctx.body = post;
+  } catch (e) {
+    ctx.throw(500, e);
+  }
 };
 
 // GET /api/posts
-exports.list = ctx => {
-  ctx.body = posts;
+export const list = async ctx => {
+  try {
+    const posts = await Post.find().exec();
+    ctx.body = posts;
+  } catch (e) {
+    ctx.throw(500, e);
+  }
 };
 
 // GET /api/posts/:id
-exports.read = ctx => {
+export const read = async ctx => {
   const { id } = ctx.params;
-  const post = posts.find(p => p.id.toString() === id);
-
-  if (!post) {
-    ctx.status = 404;
-    ctx.body = {
-      message: 'The post is not existed.',
-    };
-    return ;
+  try {
+    const post = await Post.findById(id).exec();
+    if (!post) {
+      ctx.status = 404;
+      return;
+    }
+    ctx.body = post;
+  } catch (e) {
+    ctx.throw(500, e);
   }
-
-  ctx.body = post;
 };
 
 // DELETE /api/posts/:id
-exports.remove = ctx => {
+export const remove = async ctx => {
   const { id } = ctx.params;
-  const index = posts.findIndex(p => p.id.toString() === id);
-
-  if (index === -1) {
-    ctx.status = 404;
-    ctx.body = {
-      message: 'The post is not existed.',
-    };
-    return;
+  try {
+    await Post.findByIdAndRemove(id).exec();
+    ctx.status = 204;
+  } catch (e) {
+    ctx.throw(500, e);
   }
-
-  posts.splice(index, 1);
-  ctx.status = 204; // No content
-};
-
-// PUT /api/posts/:id
-exports.replace = ctx => {
-  const { id } = ctx.params;
-  const index = posts.findIndex(p => p.id.toString() === id);
-
-  if (index === -1) {
-    ctx.status = 404;
-    ctx.body = {
-      message: 'The post is not existed.',
-    };
-    return;
-  }
-
-  posts[index] = {
-    id,
-    ...ctx.request.body,
-  };
-  ctx.body = posts[index];
 };
 
 // PATCH /api/posts/:id
-exports.update = ctx => {
+export const update = async ctx => {
   const { id } = ctx.params;
-  const index = posts.findIndex(p => p.id.toString() === id);
 
-  if (index === -1) {
-    ctx.status = 404;
-    ctx.body = {
-      message: 'The post is not existed.',
-    };
+  const schema = Joi.object().keys({
+    title: Joi.string(),
+    body: Joi.string(),
+    tags: Joi.array().items(Joi.string()),
+  });
+  
+  const result = schema.validate(ctx.request.body);
+
+  if (result.error) {
+    ctx.status = 400;
+    ctx.body = result.error;
     return;
   }
 
-  posts[index] = {
-    ...posts[index],
-    ...ctx.request.body,
-  };
-  ctx.body = posts[index];
+  try {
+    const post = await Post.findByIdAndUpdate(id, ctx.request.body, { new: true }).exec();
+
+    if (!post) {
+      ctx.status = 404;
+      return;
+    }
+
+    ctx.body = post;
+  } catch (e) {
+    ctx.throw(500, e);
+  }
 };
